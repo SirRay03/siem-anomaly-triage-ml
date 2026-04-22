@@ -53,16 +53,26 @@ what converts a score into something an analyst can act on in seconds.
 ![Figure 5.1 — Reason codes for rank #1](figures/fig-5-1-reason-codes-rank1.png)
 
 *Figure 5.1 (thesis): Top feature contributions for the #1-ranked alert
-on T3. The dominant driver is `rule_time_since_last_host` (an extremely
-long gap since this rule last fired on this host), with `rule_level_z`
-interactions contributing secondary weight.*
+under k-NN, ordered by scaled contribution ( |x − neighbor_median| /
+IQR ). A single feature — `rule_time_since_last_host` — dominates at
+~900, signalling that this rule hasn't fired on this host for an
+unusually long window. Secondary contributions come from
+`offhours_x_rule_level_z`, `weekend_x_rule_level_z`, and
+`rule_level_z_host`, all in a much lower (~10–15) range. The shape of
+this chart — one runaway bar, everything else small — is characteristic
+of "dormant rule reactivates" anomalies.*
 
 ![Figure 5.2 — Reason codes for rank #3](figures/fig-5-2-reason-codes-rank3.png)
 
-*Figure 5.2 (thesis): For the #3-ranked alert, the driver shifts: the
-`weekend × rule_level_z` and `offhours × rule_level_z` interactions
-dominate. The same model surfaces different explanation patterns for
-different classes of anomaly.*
+*Figure 5.2 (thesis): Top feature contributions for the #3-ranked alert
+under the same k-NN model. The driver shifts entirely: no single
+outlier, but `weekend_x_rule_level_z` (~16),
+`offhours_x_rule_level_z` (~12), `rule_level_z_host` (~8),
+`offhours_x_rule_level` (~3), `agent_rule_hour_freq_log1p` (~2), and
+`rule_level` (~1.5) stack together. The pattern points to a
+"high-severity event on a host during an unusual weekend-off-hours
+window" — a qualitatively different class of anomaly that the same
+model surfaces with a qualitatively different explanation.*
 
 These explanations aren't a separate post-hoc tool; they fall out of the
 k-NN distance computation directly, which is why explainability is cheap
@@ -79,24 +89,33 @@ wider budget → higher recall.
 
 ![Figure 5.3 — Precision vs p](figures/fig-5-3-precision-vs-p-knn.png)
 
-*Figure 5.3 (thesis): `precision@p` as the budget widens. Drops gently
-from ~0.78 at p = 0.5% to ~0.50 at p = 3%, with a clear "shoulder" near
-p = 1%.*
+*Figure 5.3 (thesis): `precision@p` for k-NN across four review
+budgets — 0.5%, 1%, 2%, 3%. Precision starts at ~0.785 at p = 0.5%,
+drops to 0.680 at p = 1% (the chosen operating point), then flattens
+to ~0.498 for p = 2% and p = 3%. The sharp step between p = 1% and
+p = 2% is the natural "shoulder" that motivates p = 1% as the default
+budget.*
 
 ### Recall vs p
 
 ![Figure 5.4 — Recall vs p](figures/fig-5-4-recall-vs-p-knn.png)
 
-*Figure 5.4 (thesis): `recall@p` rises approximately linearly as the
-slice widens, from ~0.14 at p = 0.5% to ~0.51 at p = 3%.*
+*Figure 5.4 (thesis): `recall@p` rises nearly monotonically with the
+budget: 0.135 at p = 0.5%, 0.234 at p = 1%, 0.343 at p = 2%, 0.513
+at p = 3%. Widening the slice from 1% to 3% roughly doubles the
+coverage of true positives, which is the knob a SOC can turn when it
+has extra analyst capacity on a given day.*
 
 ### Lift vs p
 
 ![Figure 5.5 — Lift vs p](figures/fig-5-5-lift-vs-p-knn.png)
 
-*Figure 5.5 (thesis): `lift@p` starts near 27× at p = 0.5% and settles at
-~17× at p = 3%. Even at the widest budget, the ranker is more than an
-order of magnitude better than random sampling.*
+*Figure 5.5 (thesis): `lift@p` versus review budget. 26.94× at
+p = 0.5%, 23.34× at p = 1%, then a step down to 17.10× at p = 2% and
+p = 3%. The lift curve mirrors the precision curve almost exactly
+(precision divided by the constant 2.91% prevalence), so a manager
+reading this chart gets an SLA-friendly number — "about 23× better
+than random" — without needing the full confusion matrix.*
 
 ### k sweep at p = 1%
 
@@ -142,38 +161,50 @@ headcount.
 
 ![Figure 5.6 — Precision@K](figures/fig-5-6-precision-at-k.png)
 
-*Figure 5.6 (thesis): Precision stays at 0.84 for K ≤ 50 and drops to
-0.64 at K = 100. Ranking remains sharp even when the slice widens.*
+*Figure 5.6 (thesis): Bar chart of `Precision@K` at the three fixed
+budgets. 0.840 at K = 25, 0.840 at K = 50, 0.640 at K = 100. Precision
+is flat through K = 50, meaning doubling the queue from 25 to 50 does
+not dilute quality — every extra alert analysts read is about as
+likely to be relevant as the first 25.*
 
 ### Recall@K
 
 ![Figure 5.7 — Recall@K](figures/fig-5-7-recall-at-k.png)
 
-*Figure 5.7 (thesis): Recall rises monotonically with K. K = 50 gives a
-meaningful bump over K = 25 with the precision penalty still small.*
+*Figure 5.7 (thesis): Bar chart of `Recall@K`. 0.019 at K = 25, 0.039
+at K = 50, 0.059 at K = 100. Coverage roughly doubles from K = 25 to
+K = 50, then rises sub-linearly — the precision-coverage trade-off
+bends around K = 50.*
 
 ### Lift@K
 
 ![Figure 5.8 — Lift@K](figures/fig-5-8-lift-at-k.png)
 
-*Figure 5.8 (thesis): Lift stays at 28.83× through K ≤ 50 and settles at
-21.97× at K = 100 — still far above 1×, so prioritisation is
-operationally meaningful.*
+*Figure 5.8 (thesis): Bar chart of `Lift@K`. 28.831× at K = 25,
+28.831× at K = 50, 21.967× at K = 100. Lift is flat through K = 50 and
+decays at K = 100 — the same breakpoint the precision chart shows, as
+expected.*
 
 ### FPR@K
 
 ![Figure 5.9 — FPR@K](figures/fig-5-9-fpr-at-k.png)
 
-*Figure 5.9 (thesis): FPR grows with K as expected, but stays below 0.1%
-even at K = 100 — noise remains well within analyst tolerance.*
+*Figure 5.9 (thesis): `FPR@K` in the non-anomalous population. Very
+small at K = 25 (~0.0001), still small at K = 50 (~0.0002), and reaches
+~0.001 at K = 100. Even at the widest budget, fewer than 0.1% of
+legitimate alerts end up in the queue — noise is tightly contained.*
 
 ### Confusion counts at fixed K
 
 ![Figure 5.10 — Confusion matrix counts](figures/fig-5-10-confusion-at-k.png)
 
-*Figure 5.10 (thesis): TP / FP / TN / FN counts across K = 25, 50, 100.
-Most mass stays in TN (non-anomalous and correctly un-selected); FP
-scales predictably with K.*
+*Figure 5.10 (thesis): Stacked bars of TP / FP / TN / FN counts at
+K = 25, 50, 100. The vast majority of the volume is TN (~36 000
+non-anomalies correctly left out of the queue — the tall green
+blocks); FN (red) is the residual anomalies that didn't make the
+slice; TP and FP are small in absolute counts but are the only
+quantities that matter to the analyst experience, and they evolve
+exactly the way Figures 5.6 and 5.9 predict.*
 
 ### Practical capacity translation
 

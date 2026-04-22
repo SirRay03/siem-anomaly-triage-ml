@@ -6,6 +6,16 @@ shape of the real dataset that drove every subsequent feature decision.
 The charts below are reproduced from the published thesis; the underlying
 data is not shared (see [Data statement](../README.md#data-statement)).
 
+## Where this data comes from
+
+![Figure 2.1 — Basic SIEM architecture](figures/fig-2-1-siem-basic-architecture.png)
+
+*Figure 2.1 (thesis, adapted from Mohanan 2022): The generic SIEM pipeline
+— System inputs (event data + contextual data) feed data
+collection/normalisation, correlation/logic/aggregation, and system
+outputs (analysis + reports). The dataset analysed below sits at the
+output of that pipeline in a Wazuh deployment.*
+
 ## Corpus characteristics
 
 The dataset comes from the Wazuh alert index collected through the

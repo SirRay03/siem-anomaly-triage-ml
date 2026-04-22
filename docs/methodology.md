@@ -57,9 +57,15 @@ genuine triage value.
 
 ![Figure 4.19 — Cleaning pipeline overview](figures/fig-4-19-cleaning-overview.png)
 
-*Figure 4.19 (thesis): End-to-end cleaning flow — from 277,499 rows × 836
-columns of raw exports down to 277,440 rows × 6 canonical columns, plus
-the temporal T1/T2/T3 split used for modelling.*
+*Figure 4.19 (thesis): End-to-end cleaning flow, left to right.
+**Raw Data** (277 499 rows × 836 features) → **Normalisasi Tipe Data**
+(type normalisation) → **Reduksi Fitur (836 > 6 fitur)** (drop 830+
+sparse columns) → **Deduplikasi Data (-59 data)** (remove duplicate
+`event_id`s) → **Cleaned Data** (277 440 rows × 6 features). The
+cleaned table is then split temporally into **T1 (train)** 214 538
+rows covering 2025-07-10 → 2025-08-02, **T2 (validate)** 36 022 rows
+covering 2025-08-02 → 2025-08-07, and **T3 (test)** 26 880 rows
+covering 2025-08-08 → 2025-08-12.*
 
 The cleaning step is deliberately conservative and deterministic:
 
@@ -127,10 +133,15 @@ This guarantees three things:
 
 ![Figure 4.20 — Feature engineering overview](figures/fig-4-20-feature-engineering-overview.png)
 
-*Figure 4.20 (thesis): Cleaned data → Engineered features. Deterministic
-features are computed directly; contextual statistics (e.g. per-host
-rule-level z-score, agent×rule×hour combo frequency) are fit on T1 and
-frozen for reuse at T2/T3/inference.*
+*Figure 4.20 (thesis): Two-stage feature-engineering flow.
+**Cleaned Data** (6 features) → **Hitung Fitur Deterministik** (jam,
+weekend, bucket, interaksi — i.e. hour, weekend flag, time buckets,
+and interaction features derivable row-by-row) → **Hitung baseline
+statistik saat memproses T1** (fit contextual baselines while
+processing T1: per-host z-score, agent × rule recency) →
+**Engineered Data** (21 features). Everything computed against T1
+baselines is frozen and re-applied identically to T2/T3/inference —
+this is how the no-leakage invariant is enforced in practice.*
 
 Feature engineering is anchored in three signal families plus
 interactions. This parsimony is deliberate: the thesis argues that
