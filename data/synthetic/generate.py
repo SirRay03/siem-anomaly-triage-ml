@@ -89,9 +89,20 @@ def generate(n: int, start_date: str, days: int, seed: int) -> pd.DataFrame:
     levels = _rule_level_sample(rng, n)
     decoders = rng.choice(DECODERS, size=n)
 
-    ts_fmt = ts.strftime("%b %d, %Y @ %H:%M:%S.") + ts.strftime("%f").str[:3]
+    # Time-order the rows before we format timestamps. Kibana-format
+    # strings don't sort correctly lexically (e.g. "Aug 01 ..." sorts
+    # before "Jul 31 ..."), so we sort on the real datetime first.
+    ts = pd.Series(ts)
+    order = np.argsort(ts.values)
+    ts = ts.iloc[order].reset_index(drop=True)
+    agents = agents[order]
+    rules = rules[order]
+    levels = levels[order]
+    decoders = decoders[order]
 
-    df = pd.DataFrame({
+    ts_fmt = ts.dt.strftime("%b %d, %Y @ %H:%M:%S.") + ts.dt.strftime("%f").str[:3]
+
+    return pd.DataFrame({
         "_id": [f"evt-{i:010d}" for i in range(n)],
         "_source.@timestamp": ts_fmt,
         "_source.timestamp": ts_fmt,
@@ -101,9 +112,6 @@ def generate(n: int, start_date: str, days: int, seed: int) -> pd.DataFrame:
         "_source.rule.level": levels,
         "_source.decoder.name": decoders,
     })
-    # Ensure time-ordered output (matches how real Wazuh CSVs export)
-    df = df.sort_values("_source.timestamp").reset_index(drop=True)
-    return df
 
 
 def main() -> None:
@@ -119,10 +127,12 @@ def main() -> None:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_path, index=False)
+    first_ts = df["_source.timestamp"].iloc[0]
+    last_ts = df["_source.timestamp"].iloc[-1]
     print(f"[OK] Wrote {len(df):,} synthetic alerts to {out_path}")
     print(f"     agents={df['_source.agent.name'].nunique()}  "
           f"rules={df['_source.rule.id'].nunique()}  "
-          f"date_range=[{df['_source.timestamp'].iloc[0]} .. {df['_source.timestamp'].iloc[-1]}]")
+          f"date_range=[{first_ts} .. {last_ts}]")
 
 
 if __name__ == "__main__":

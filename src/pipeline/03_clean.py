@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 """
-clean_wazuh_v1.py
-=================
-Minimal data cleaning for Wazuh alerts tailored to anomaly detection use-cases.
+Minimal data cleaning for Wazuh alerts, tailored to anomaly-detection use-cases.
 
 Kept canonical columns:
 - event_id     : unique identifier (from _id if available, else row_index)
@@ -17,7 +15,10 @@ Outputs:
 - Cleaning report (Markdown + JSON)
 
 Usage:
-  python clean_wazuh_v1.py --input data/combined_wazuh.csv --output data/cleaned_wazuh.csv --report-dir reports/clean_v1
+  python src/pipeline/03_clean.py \
+    --input data/combined.csv \
+    --output data/cleaned.csv \
+    --report-dir data/cleaning-report
 """
 
 import argparse

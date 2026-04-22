@@ -24,6 +24,8 @@ data/cleaned*.csv
 data/splits/
 data/coverage_*
 data/byprod/
+data/*_scored.csv
+data/cleaning-report/
 
 # Synthetic outputs are OK, but keep local files out of commits by default
 data/synthetic/*.csv

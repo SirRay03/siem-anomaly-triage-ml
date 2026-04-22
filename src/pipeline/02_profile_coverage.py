@@ -17,9 +17,14 @@ Usage:
   python extract_top_features.py --input-file combined_wazuh.csv --out-prefix wazuh_top --min-pct 0.9
 """
 
-import argparse, glob, os, sys, math, random
+import argparse
+import glob
+import os
+import random
+import sys
+from collections import defaultdict
+
 import pandas as pd
-from collections import defaultdict, Counter
 
 TIMESTAMP_COL = "_source.@timestamp"
 
@@ -74,17 +79,6 @@ def normalize_timestamp_inplace(df):
             parsed2 = pd.to_datetime(ts[miss], format="%b %d, %Y %H:%M:%S", errors="coerce", utc=True)
             parsed[miss] = parsed2
         df[TIMESTAMP_COL] = parsed
-
-def dtype_guess(series: pd.Series) -> str:
-    # Loose, chunk-safe dtype heuristics
-    if pd.api.types.is_bool_dtype(series):
-        return "bool"
-    if pd.api.types.is_integer_dtype(series) or pd.api.types.is_float_dtype(series):
-        return "numeric"
-    # try datetime-ish
-    if series.name == TIMESTAMP_COL:
-        return "datetime"
-    return "string"
 
 def update_profile(col, s, prof):
     nn = s.notna()
@@ -159,7 +153,7 @@ def select_columns(report_df, min_pct, top_n):
 def write_report(report_df, out_prefix):
     out = f"{out_prefix}_feature_report.csv"
     report_df.to_csv(out, index=False)
-    print(f"[✓] Wrote feature report: {out} ({len(report_df)} cols profiled)")
+    print(f"[OK] Wrote feature report: {out} ({len(report_df)} cols profiled)")
 
 def second_pass_write(file_list, cols_to_keep, out_prefix, chunksize, dedupe=False, sample_n=0, seed=42):
     reduced_path = f"{out_prefix}_reduced.csv"
@@ -212,14 +206,14 @@ def second_pass_write(file_list, cols_to_keep, out_prefix, chunksize, dedupe=Fal
         df.to_csv(reduced_path, index=False)
         print(f"[i] Deduped rows: {before - after}")
 
-    print(f"[✓] Wrote reduced data: {reduced_path}")
+    print(f"[OK] Wrote reduced data: {reduced_path}")
 
     # Write sample if requested
     if sample_n and sample_n > 0:
         if sample_buf:
             sample_df = pd.DataFrame(sample_buf)
             sample_df.to_csv(sample_path, index=False)
-            print(f"[✓] Wrote sample ({len(sample_df)} rows): {sample_path}")
+            print(f"[OK] Wrote sample ({len(sample_df)} rows): {sample_path}")
         else:
             print("[!] No rows collected for sample.")
 

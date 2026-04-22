@@ -8,14 +8,20 @@ Purpose of this UI:
   and demonstrate them when needed during thesis writing (NOT a production UI).
 """
 
-import os, io, json, math, zipfile
+import hashlib
+import io
+import json
+import math
+import os
+import zipfile
 from typing import List, Optional, Tuple
 
+import gradio as gr
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from pandas.api.types import is_numeric_dtype
-import matplotlib.pyplot as plt
-import gradio as gr
+from sklearn.pipeline import Pipeline
 
 # =========================== Helpers: model loading ===========================
 
@@ -59,8 +65,7 @@ def safe_load_model(model_bytes_or_path):
         ) from e
 
 
-from sklearn.pipeline import Pipeline
-SCORER_ATTRS = ("score_samples","decision_function","predict_proba","kneighbors","predict")
+SCORER_ATTRS = ("score_samples", "decision_function", "predict_proba", "kneighbors", "predict")
 
 def _is_estimator(x) -> bool:
     return any(hasattr(x, a) for a in SCORER_ATTRS)
@@ -137,13 +142,22 @@ def unwrap_pipeline_for_scoring(model_like):
     return _preproc, steps[-1][1]
 
 def labels_to_scores(y):
+    """Map arbitrary predict() output to a numeric score.
+
+    Integer/float labels pass through. String labels containing common
+    anomaly-adjacent tokens ('anom', 'outlier', ...) are mapped to 1.0;
+    everything else to 0.0.
+    """
     y = np.asarray(y)
     try:
         return y.astype(float)
-    except Exception:
-        ys = y.astype(str)
-        toks = ("anom","outlier","attack","malicious","fraud","bad","novel")
-        return np.array([1.0 if any(t in s.lower() for s in [ys_i] for t in toks) else 0.0 for ys_i in ys], dtype=float)
+    except (TypeError, ValueError):
+        pass
+    tokens = ("anom", "outlier", "attack", "malicious", "fraud", "bad", "novel")
+    return np.array(
+        [1.0 if any(tok in str(label).lower() for tok in tokens) else 0.0 for label in y],
+        dtype=float,
+    )
 
 def infer_scores(model_like, X_df: pd.DataFrame):
     """
@@ -250,9 +264,6 @@ def normalize_to_canon(df_raw: pd.DataFrame) -> Tuple[pd.DataFrame, dict, list]:
     out = out.drop_duplicates(subset=["event_id"], keep="first")
 
     return out, mapping, []
-
-
-import hashlib  # <-- make sure this import exists
 
 def engineer_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, list]:
     """

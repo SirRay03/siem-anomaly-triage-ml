@@ -188,6 +188,42 @@ def ensure_anomaly_score(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def summarise_reasons(parsed: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Flatten a parsed explanations dict into a 'feature:delta' summary string.
+
+    Expected structure: `{"top_features": [{"feature": str, "delta_score_...": float}, ...]}`.
+    Returns None for anything else.
+    """
+    if not isinstance(parsed, dict):
+        return None
+    parts = []
+    for entry in parsed.get("top_features", [])[:3]:
+        feature = entry.get("feature")
+        delta = entry.get("delta_score_if_replaced_by_train_median", 0)
+        try:
+            parts.append(f"{feature}:{round(float(delta), 3)}")
+        except (TypeError, ValueError):
+            continue
+    return ", ".join(parts) if parts else None
+
+
+def jsonable_records(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    """Convert a DataFrame slice to JSON-ready dicts.
+
+    pandas Timestamps and numpy NaNs are not stdlib-JSON-serialisable; this
+    helper coerces timestamp columns to ISO-8601 strings and replaces NaN
+    with None, then returns plain dicts.
+    """
+    if df.empty:
+        return []
+    out = df.copy()
+    for col in out.columns:
+        if pd.api.types.is_datetime64_any_dtype(out[col]):
+            out[col] = out[col].dt.strftime("%Y-%m-%dT%H:%M:%S")
+    out = out.where(pd.notna(out), None)
+    return out.to_dict(orient="records")
+
+
 def choose_output_columns(df: pd.DataFrame) -> List[str]:
     pref = [
         "rank",
@@ -286,13 +322,7 @@ def anomalies_top(req: TopRequest) -> JSONResponse:
     # Parse explanations if present (optional)
     if "explanations" in df.columns:
         try:
-            parsed = df["explanations"].map(parse_explanations_cell)
-            # Keep original text, add a light-weight summary column
-            df["reason_summary"] = parsed.map(
-                lambda d: ", ".join([f"{x.get('feature')}:{round(float(x.get('delta_score_if_replaced_by_train_median', 0)), 3)}"
-                                       for x in (d or {}).get("top_features", [])][:3])
-                if isinstance(d, dict) else None
-            )
+            df["reason_summary"] = df["explanations"].map(parse_explanations_cell).map(summarise_reasons)
         except Exception:
             pass
 
@@ -314,7 +344,7 @@ def anomalies_top(req: TopRequest) -> JSONResponse:
         "rows": len(dresp),
         "columns": out_cols,
         "artifact": str(artifact_path) if artifact_path else None,
-        "items": dresp.to_dict(orient="records"),
+        "items": jsonable_records(dresp),
     }
     return JSONResponse(payload)
 

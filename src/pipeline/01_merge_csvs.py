@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-Merge Wazuh weekly CSVs with varying columns.
+Merge Wazuh weekly CSVs with varying columns into a single time-sorted CSV.
+
+Columns across the input files may differ. The union schema is used, missing
+columns are left empty, and `_source.@timestamp` is parsed (Kibana format)
+and used as the sort key. Optional Parquet twin output.
 
 Usage:
-  python merge_wazuh_csvs.py --input-dir /data --out combined_wazuh.csv --parquet
+  python src/pipeline/01_merge_csvs.py \
+    --input-dir data/raw --out data/combined.csv --parquet
 """
 
 import argparse
@@ -131,7 +136,7 @@ def main():
     out_csv = args.out
     os.makedirs(os.path.dirname(out_csv) or ".", exist_ok=True)
     combined.to_csv(out_csv, index=False)
-    print(f"[✓] Wrote CSV: {out_csv} ({len(combined)} rows, {combined.shape[1]} cols)")
+    print(f"[OK] Wrote CSV: {out_csv} ({len(combined)} rows, {combined.shape[1]} cols)")
 
     # Optionally write Parquet (smaller & faster to load)
     if args.parquet:
@@ -139,7 +144,7 @@ def main():
         out_parquet = base + ".parquet"
         try:
             combined.to_parquet(out_parquet, index=False)
-            print(f"[✓] Wrote Parquet: {out_parquet}")
+            print(f"[OK] Wrote Parquet: {out_parquet}")
         except Exception as e:
             print(f"[!] Failed to write Parquet ({e}). Install pyarrow or fastparquet.", file=sys.stderr)
 
