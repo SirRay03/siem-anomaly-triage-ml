@@ -6,6 +6,14 @@
 
 This repository is the **public showcase** of my BSc thesis work at Institut Teknologi Bandung (*Cum Laude*, 2025). The ranking pipeline and scoring service were developed over real Wazuh SIEM telemetry from the Telkom Indonesia CSOC; this repository contains the same code with a synthetic-data generator so anyone can clone and run it end-to-end without the production dataset.
 
+> **Note.** The **original thesis development repository is kept private**
+> because its notebooks contain outputs (real IPs, hostnames, and CSOC
+> references) that cannot be published without violating data-handling
+> expectations. This public repository is a clean, fully-sanitised
+> reimplementation of the same code paths, paired with a synthetic data
+> generator. Reviewers who need access to the original artefact for
+> academic verification can request it directly.
+
 > ### ⚠️ Status: Pilot / Proof of Concept
 >
 > This is a **first-iteration artifact** that demonstrates the *concept* works: ranking-based ML anomaly detection, integrated with explainability, producing operationally-useful Top-K / Top-p lists on a realistic SIEM corpus. It is **not** a finished production system.
