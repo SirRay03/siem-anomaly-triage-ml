@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use this software or reference the underlying thesis, please cite as below."
+title: "Ranking-Based Anomaly Detection for SOC Alert Triage on Wazuh SIEM"
+type: software
+authors:
+  - family-names: "Putra"
+    given-names: "Rayhan Nugraha"
+    orcid: ""
+    affiliation: "Institut Teknologi Bandung (BSc); KTH Royal Institute of Technology (MSc Cybersecurity, Autumn 2026)"
+repository-code: "https://github.com/SirRay03/siem-anomaly-triage-ml"
+license: MIT
+keywords:
+  - anomaly-detection
+  - SIEM
+  - Wazuh
+  - SOC
+  - alert-triage
+  - machine-learning
+  - explainable-AI
+  - cybersecurity
+preferred-citation:
+  type: thesis
+  title: "Pengembangan Sistem Deteksi Anomali dan Prioritisasi Ancaman Siber Berbasis Machine Learning pada SIEM Wazuh"
+  authors:
+    - family-names: "Putra"
+      given-names: "Rayhan Nugraha"
+  thesis-type: "Bachelor thesis"
+  institution:
+    name: "Institut Teknologi Bandung, Sekolah Teknik Elektro dan Informatika, Program Studi Sistem dan Teknologi Informasi"
+  year: 2025
+  month: 9
+  url: "https://github.com/SirRay03/siem-anomaly-triage-ml/blob/main/docs/thesis-materials/ThesisPub-Putra-Rayhan.pdf"

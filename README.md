@@ -4,7 +4,21 @@
 
 ![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue) ![License MIT](https://img.shields.io/badge/license-MIT-green) ![BSc Thesis ITB 2025](https://img.shields.io/badge/thesis-ITB%202025-red)
 
-This repository is the **public showcase** of my BSc thesis work at Institut Teknologi Bandung (*Cum Laude*, 2025). The ranking pipeline and scoring service were deployed inside the Telkom MDR stack over real Wazuh SIEM telemetry; this repository contains the same code with a synthetic-data generator so anyone can clone and run it end-to-end without the production dataset.
+This repository is the **public showcase** of my BSc thesis work at Institut Teknologi Bandung (*Cum Laude*, 2025). The ranking pipeline and scoring service were developed over real Wazuh SIEM telemetry from the Telkom Indonesia CSOC; this repository contains the same code with a synthetic-data generator so anyone can clone and run it end-to-end without the production dataset.
+
+> ### ⚠️ Status: Pilot / Proof of Concept
+>
+> This is a **first-iteration artifact** that demonstrates the *concept* works: ranking-based ML anomaly detection, integrated with explainability, producing operationally-useful Top-K / Top-p lists on a realistic SIEM corpus. It is **not** a finished production system.
+>
+> **What "pilot" means concretely:**
+> - Results in this repository were measured against curated MITRE-ATT&CK-style **synthetic injections** on the T2 validation window. They validate the *pipeline and methodology*, not the real-world hit-rate against every adversary technique.
+> - The feature spine was chosen for **coverage and stability**, not exhaustiveness. Network, geolocation, and MITRE taxonomy signals were intentionally excluded because they are too sparse in the current dataset.
+> - No continuous learning loop is present. The current model is frozen after T1 fit.
+>
+> **What a v2 (production) implementation would add** — see [Future directions](#future-directions-v2--beyond-the-pilot) for the full list:
+> 1. A **reinforcement / active-learning loop**: every analyst disposition on a Top-K alert (true positive / false positive / escalate) becomes a labelled example that retrains the ranker on a schedule. This turns the model into a closed-loop system that gets sharper over time instead of drifting.
+> 2. **Replace the synthetic validation set with real labelled incidents** accumulated through that loop. The synthetic generator stays useful for unit tests and reproducibility, but no longer sits on the evaluation critical path.
+> 3. **Expanded feature spine** once network/geo/MITRE fields are reliably cleaned upstream.
 
 ---
 
@@ -165,22 +179,45 @@ python src/service/gradio_app.py
 
 ---
 
-## Limitations and research extensions
+## Limitations
 
 The current ranking layer operates without **behavioural context** (user roles, peer-group baselines, temporal norms) and produces a static list that analysts still interpret alone. Modern SIEM threats — especially insider attacks — often go undetected for months because rule-based defences lack this behavioural dimension. Over 80% of analysts hesitate to act on anomaly alerts without explanations.
 
-Two research extensions sit naturally on top of this work:
+Additional honest limits of this pilot:
 
-### 1. Context-aware ranking
+- **Ground truth is synthetic.** Headline metrics (precision@1% = 0.68, lift = 23.34×) are measured against MITRE-ATT&CK-shaped injections, not verified real incidents. Directional validity is high; absolute validity against wild adversaries is not claimed.
+- **Feature coverage is narrow by design.** The "spine" is temporal + severity + rarity. Network/geolocation/MITRE-tactic signals were observed too sparsely to enter the core feature set (< 35% coverage on the real dataset); they remain upstream data-quality work.
+- **No feedback loop.** Every run scores independently. The model does not yet learn from analyst dispositions.
+- **Single-deployment evidence.** Results are from one MDR environment over 34 days. Cross-environment generalisation is assumed, not proven.
+
+## Future directions (v2 — beyond the pilot)
+
+The pilot demonstrates the *shape* of a solution. A production build adds three layers on top:
+
+### 1. Closed-loop reinforcement / active learning
+
+Every Top-K alert that reaches an analyst returns a disposition: **true positive**, **false positive**, **escalate**, or **benign with context**. These dispositions become a growing labelled corpus that drives:
+
+- **Periodic retraining** of the ranker on the expanding real-incident label set (weekly cadence is typical).
+- **Threshold recalibration** at the current operating point so drift is observed, not discovered.
+- **Active sample selection** — the next training batch is biased toward examples near the decision boundary, not uniformly over the backlog.
+- **Policy-grade rejection** of known-benign patterns (suppression rules that the model learns from repeated "FP" dispositions on the same host × rule × hour signature).
+
+Evaluation target: month-over-month improvement of precision@1% on a rolling holdout of real dispositions, with drift detected and recalibrated automatically.
+
+### 2. Replace the synthetic validation set with real labels
+
+The synthetic generator stays in the repo for unit tests, demos, and reproducibility, but it moves off the evaluation critical path. Production evaluation uses the real-incident label corpus accumulated by the feedback loop above. This closes the gap between "the method works on curated anomalies" and "the system catches the threats this SOC actually sees."
+
+### 3. Context-aware ranking
 
 Incorporate peer-group baselines, historical norms, and threat intelligence into the ranking layer. Evaluation target: does context-enrichment improve precision@1% under insider-threat scenarios where rule-based defences fail? Reference datasets: CERT insider-threat logs, simulated SOC data.
 
-### 2. Agentic triage with explainable LLM reasoning
+### 4. Agentic triage with explainable LLM reasoning
 
 Wire per-alert reason codes (already produced by this pipeline) as structured input to an LLM agent that performs human-in-the-loop investigation, automatically dismisses low-risk anomalies, and recommends remediation under guardrails. The agent architecture generalises to several research directions that sit at the intersection of security and LLM tool use:
 
 - **Attack-graph integration** — feed ranked anomaly outputs into probabilistic attack-graph models so triage conditions path-likelihood estimates.
-- **Active learning for ground-truth closure** — convert analyst triage decisions into a growing real-incident label set, enabling threshold recalibration and drift detection.
 - **Agentic security testing** — the same triage-agent architecture generalises to AI-assisted penetration testing and red-team support, where an agent proposes test vectors and interprets results with human oversight.
 - **LLM-agent repair pipelines** — explainable reason codes become structured inputs for agents that propose, and under guardrails execute, remediation on the top-ranked anomalies.
 - **Supply-chain and SBOM anomaly detection** — the same ranking framing and rarity features port to software-composition and build-time events, where base rates and budget constraints follow the same shape.
@@ -189,17 +226,31 @@ Wire per-alert reason codes (already produced by this pipeline) as structured in
 
 ## Data statement
 
-The thesis was conducted using real Wazuh SIEM data from a Managed Detection & Response provider. In accordance with data-handling agreements, the production dataset is not included in this repository. The code published here is identical in structure to what ran in production; only the **data source is swapped for a synthetic generator** so the pipeline remains runnable and reviewable.
+The thesis was conducted using real Wazuh SIEM data provided by the Telkom Indonesia CSOC division (acknowledged in the published thesis). The production dataset itself is not included in this repository. The code published here is identical in structure to what ran on real data; only the **data source is swapped for a synthetic generator** so the pipeline remains runnable and reviewable.
 
-Separating the implementation from the private dataset is an intentional design choice: it lets this repository be cited, cloned, and extended without compromising the MDR provider's data-handling obligations, while keeping the original artifact intact as archival evidence.
+Separating the implementation from the private dataset is an intentional design choice: it lets this repository be cited, cloned, and extended without compromising the data-handling obligations of the providing organisation, while keeping the original artifact intact as archival evidence.
+
+**Corpus snapshot (from the published thesis):**
+
+- 277,499 raw alerts → 277,440 after deduplication and schema canonisation
+- Original schema: 836 columns → reduced to 6 canonical columns after coverage analysis
+- Temporal split: T1 = 214,538 (training) · T2 = 36,022 (validation + synthetic injection) · T3 = 26,880 (prospective hold-out)
+- Time window: 10 July 2025 17:40 — 12 August 2025 15:44 (Asia/Jakarta)
+- 5 distinct agents, 2,359 unique source IPs
 
 ---
 
 ## Citation
 
-If you reference this work, please cite:
+The full BSc thesis (including extensive evaluation, MITRE ATT&CK use case mapping, hyperparameter tuning tables, per-day stability analysis, and Top-K operational analysis) is included in this repository:
 
-> Rayhan Putra (2025). *Development of Machine Learning-Based Anomaly Detection and Cyber Threat Prioritization System on Wazuh SIEM.* BSc Thesis, Institut Teknologi Bandung, Faculty of School of Electrical Engineering and Informatics (STEI), *Cum Laude*.
+- 📄 **[ThesisPub-Putra-Rayhan.pdf](docs/thesis-materials/ThesisPub-Putra-Rayhan.pdf)** — published BSc thesis (Indonesian, 134 pages)
+- 📄 **[Abstract-Putra-Rayhan.pdf](docs/thesis-materials/Abstract-Putra-Rayhan.pdf)** — English abstract
+- 📄 **[Brief-Putra-Rayhan.pdf](docs/thesis-materials/Brief-Putra-Rayhan.pdf)** — two-page research brief with MSc direction
+
+Machine-readable citation metadata: [`CITATION.cff`](CITATION.cff). If you reference this work, please cite:
+
+> Rayhan Nugraha Putra (2025). *Pengembangan Sistem Deteksi Anomali dan Prioritisasi Ancaman Siber Berbasis Machine Learning pada SIEM Wazuh* [Development of Machine Learning-Based Anomaly Detection and Cyber Threat Prioritization System on Wazuh SIEM]. BSc Thesis, Institut Teknologi Bandung, Sekolah Teknik Elektro dan Informatika, Program Studi Sistem dan Teknologi Informasi. Advisor: Ir. Budi Rahardjo, M.Sc., Ph.D. Graduated *Cum Laude*.
 
 ## Author
 

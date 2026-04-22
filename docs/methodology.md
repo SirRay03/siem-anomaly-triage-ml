@@ -4,6 +4,28 @@ This document explains *why* the pipeline is built the way it is. It is meant
 for readers who have seen the results table in the main README and want to
 know how the numbers were produced.
 
+## Research frame
+
+The thesis follows **CRISP-DM** (Cross-Industry Standard Process for Data
+Mining) as the process framework. The mapping is direct:
+
+| CRISP-DM phase | What it means here |
+|---|---|
+| Business understanding | SOC alert fatigue → reframe as ranked triage under a daily attention budget |
+| Data understanding | Coverage analysis on 836 columns; choose temporal + identity + rule metadata as the reliable signal |
+| Data preparation | Canonicalise 6 columns, deduplicate, fix placeholders, enforce timezone; split temporally |
+| Modelling | k-NN, Isolation Forest, LOF compared; frozen feature transformers; no leakage |
+| Evaluation | Budgeted triage metrics (precision@p, recall@p, lift@p, FPR@p) on T2 + T3 |
+| Deployment | Out of scope for the BSc thesis; pilot-grade service scaffolding is included |
+
+Solution selection used **Analytical Hierarchy Process (AHP)** over seven
+weighted criteria (alert-fatigue reduction, contextualisation quality,
+implementation complexity, cost/sustainability, scalability, Wazuh
+integration, correlation/feedback). Advanced analytics via machine learning
+scored 4.30/5 — the highest of five alternatives, which also included
+headcount expansion, rule-based enhancement, commercial SOAR, and
+commercial SIEM migration.
+
 ## Reframing detection as ranking under a budget
 
 A naïve formulation is *binary classification*: label every alert as
@@ -100,6 +122,27 @@ are normal (same agent, same rule, similar hour), so *distance to near
 neighbours* is a sharper signal than either global tree path-length
 (Isolation Forest) or local density (LOF). LOF also requires explicit
 `novelty=True` to score unseen data, which adds a tripwire to deployment.
+
+## MITRE ATT&CK coverage
+
+The injection families and the feature spine were chosen so the pipeline has
+a plausible hit surface for five common operational scenarios. Each row below
+maps a behavioural signal observable in Wazuh telemetry to ATT&CK techniques
+and explains why it matters for triage.
+
+| Scenario | Signal in Wazuh telemetry | ATT&CK technique | Why it matters |
+|---|---|---|---|
+| Suspicious auth / remote access | Off-hours logon; unusual per-user login rhythm; spike in RDP/SSH/VPN | T1078 Valid Accounts · T1021 Remote Services · T1133 External Remote Services | Most common initial access and lateral-movement pathway; abuses legitimate credentials |
+| Scheduled execution outside normal cycles | Task/job created or modified off-cycle; atypical parameters | T1053 Scheduled Task/Job (incl. T1053.003 Cron) | Gives persistence and automation; runs payloads with no user interaction |
+| Service-based persistence | New or modified service/daemon outside change windows; abnormal start/stop | T1543 Create or Modify System Process (T1543.002 Systemd · T1543.003 Windows Service) | Survives reboots; blends with legitimate services |
+| Rare or bursty interpreter use | PowerShell / cmd / Unix Shell spike on a normally quiet host at odd hours | T1059 Command and Scripting Interpreter (.001 PowerShell · .003 Windows CMD) | Interpreters are adversary-versatile: discovery, staging, payload execution |
+| Rhythm pointing to scheduled exfiltration | Regular activity in a fixed time window correlated with data egress | T1029 Scheduled Transfer (with T1041 Exfiltration Over C2 · T1048 Alt. Protocol) | Exfiltration deliberately mimics business rhythm; late detection = data loss |
+
+The four synthetic injection families in `src/pipeline/05_inject_synthetic.py`
+(`offhours_shift`, `rule_new`, `decoder_new`, `level_out`) are stylised
+surrogates for these scenarios, chosen because they can be generated without
+adversary-specific heuristics and because the detector has to find them using
+the same features it would use in production.
 
 ## Explainability layer
 

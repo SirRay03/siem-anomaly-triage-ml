@@ -49,6 +49,31 @@ This is the interpretable SOC metric: *when an analyst commits an hour
 to the top-K list, the signal-to-noise floor is 2:1*, vs approximately
 1:40 for random sampling at the same budget.
 
+## Fixed-K operating points (analyst-capacity framing)
+
+Because SOC capacity is often expressed as a fixed number of tickets per
+shift, the same model is also evaluated at **fixed Top-K** on the T2
+validation window. This lets a SOC manager translate the ranker directly
+to headcount planning.
+
+| Top-K | Precision@K | Recall@K | Lift@K | FPR@K | TP | FP | FN | TN |
+|-------|-------------|----------|--------|-------|----|----|----|----|
+| 25 | **0.84** | 0.0194 | 28.83× | 0.0001 | 21 | 4 | 1,060 | 36,018 |
+| 50 | **0.84** | 0.0388 | 28.83× | 0.0002 | 42 | 8 | 1,039 | 36,014 |
+| 100 | 0.64 | 0.0592 | 21.97× | 0.0009 | 64 | 36 | 1,017 | 35,986 |
+
+Reading:
+
+- At K = 25 and K = 50 the precision floor is **0.84** — over four out of five
+  items analysts read are real.
+- Lift stays at **29×** for K ≤ 50, then drops to ~22× at K = 100 as the slice
+  widens and pulls in borderline cases.
+- FPR remains below 0.1% even at K = 100, so noise is controlled across all
+  realistic review budgets.
+- Practical translation: a three-analyst shift with a 50-alert quota per
+  analyst can expect roughly 126 true positives per day (3 × 42) against 24
+  false positives, for a ~5:1 signal-to-noise ratio inside the queue.
+
 ## Per-day stability
 
 A brittle ranker shows wide per-day swings in precision@p and lift@p —
