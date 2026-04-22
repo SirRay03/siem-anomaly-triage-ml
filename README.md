@@ -140,9 +140,12 @@ wazuh-anomaly-triage-ml/
 │       ├── generate.py         # produce a fake Wazuh dataset
 │       └── README.md
 ├── docs/
-│   ├── methodology.md          # T1/T2/T3, no-leakage invariant, injection design
-│   ├── results.md              # full results table + per-day stability
-│   └── architecture.md         # pipeline and service deployment
+│   ├── architecture.md         # system overview, training/inference flows, schema evolution
+│   ├── eda.md                  # exploratory analysis of the real Wazuh corpus (10 charts)
+│   ├── methodology.md          # CRISP-DM, cleaning, feature engineering, modelling choices
+│   ├── results.md              # hyperparameter tuning, Top-p sweep, fixed-K capacity analysis
+│   ├── figures/                # all thesis figures reproduced for the docs
+│   └── thesis-materials/       # full thesis PDF + abstract + research brief
 ├── notebooks/
 │   └── demo.ipynb              # end-to-end walkthrough on synthetic data
 ├── tests/

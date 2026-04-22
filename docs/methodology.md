@@ -1,8 +1,9 @@
 # Methodology
 
-This document explains *why* the pipeline is built the way it is. It is meant
-for readers who have seen the results table in the main README and want to
-know how the numbers were produced.
+This document mirrors Chapters IV.2.2, IV.2.3, and IV.2.4 of the thesis —
+the three decisions that turn a raw SIEM corpus into a model-ready
+dataset, and the modelling framework on top of it. Explanatory figures
+are reproduced from the published thesis.
 
 ## Research frame
 
@@ -12,7 +13,7 @@ Mining) as the process framework. The mapping is direct:
 | CRISP-DM phase | What it means here |
 |---|---|
 | Business understanding | SOC alert fatigue → reframe as ranked triage under a daily attention budget |
-| Data understanding | Coverage analysis on 836 columns; choose temporal + identity + rule metadata as the reliable signal |
+| Data understanding | Coverage analysis on 836 columns; choose temporal + identity + rule metadata as the reliable signal (see [eda.md](eda.md)) |
 | Data preparation | Canonicalise 6 columns, deduplicate, fix placeholders, enforce timezone; split temporally |
 | Modelling | k-NN, Isolation Forest, LOF compared; frozen feature transformers; no leakage |
 | Evaluation | Budgeted triage metrics (precision@p, recall@p, lift@p, FPR@p) on T2 + T3 |
@@ -52,30 +53,67 @@ the metric name, so drift is observable day over day.
 At p = 1%, random sampling gives lift ≈ 1.0; anything above that is
 genuine triage value.
 
-## Temporal T1 / T2 / T3 split
+## Data cleaning (IV.2.2)
+
+![Figure 4.19 — Cleaning pipeline overview](figures/fig-4-19-cleaning-overview.png)
+
+*Figure 4.19 (thesis): End-to-end cleaning flow — from 277,499 rows × 836
+columns of raw exports down to 277,440 rows × 6 canonical columns, plus
+the temporal T1/T2/T3 split used for modelling.*
+
+The cleaning step is deliberately conservative and deterministic:
+
+1. **Canonical column selection.** The raw schema contains 836 columns;
+   only six are needed for modelling: `event_id`, `timestamp`, `agent`,
+   `rule_id`, `rule_level`, `decoder`. These are the columns consistently
+   present across the whole dataset (see [eda.md → Column coverage](eda.md#column-coverage)).
+2. **Schema mapping with fallback.** Wazuh/Elastic schemas vary between
+   sources; the cleaning step uses an explicit mapping from candidate
+   names (`_source.agent.name`, `_source.agent.id`, `agent.name`,
+   `agent.id`, …) to the canonical name. Mapping prefers
+   `_source.agent.name` and falls back to `_source.agent.id` to keep
+   coverage at 100%.
+3. **Type enforcement.** `event_id`, `agent`, `rule_id`, `decoder` as
+   string; `rule_level` as nullable `Int64`; `timestamp` parsed as
+   `datetime64[ns]` from the Kibana format `"%b %d, %Y @ %H:%M:%S.%f"`
+   with `errors="coerce"` so invalid values become `NaT` and are dropped
+   downstream.
+4. **Deduplication.** By `event_id`: 59 rows removed (0.02% of the
+   corpus).
+5. **Feature reduction.** 836 → 6 columns (99.28% reduction) by dropping
+   placeholder-heavy families (GeoLocation, ModSec transaction
+   parameters, Windows EventChannel specifics, flow statistics, HTTP
+   transaction parameters) that would introduce noise rather than
+   signal.
+
+Validation after cleaning confirms the six canonical columns contain
+**zero missing values** across all 277,440 remaining rows, so every row
+passes the schema contract required by downstream feature engineering.
+
+### Temporal T1 / T2 / T3 split
 
 All splits are strictly temporal. The order matches how a SOC deployment
-moves forward in time: train on the past, validate on the near past, hold
-out the true future.
+moves forward in time: train on the past, validate on the near past,
+hold out the true future.
 
 | Split | Role | Rows (thesis) | Time relation |
 |-------|------|---------------|---------------|
-| **T1** | Training window | 214,538 | `timestamp ≤ history-cutoff` |
-| **T2** | Validation with synthetic injection | 36,022 | `window-start ≤ timestamp ≤ window-end` |
-| **T3** | Prospective hold-out | 26,880 | `timestamp > window-end` |
+| **T1** | Training window | 214,538 | `timestamp ≤ 2025-08-02 23:59:59.999999` |
+| **T2** | Validation with synthetic injection | 36,022 | `2025-08-03 ≤ timestamp ≤ 2025-08-07 23:59:59.999999` |
+| **T3** | Prospective hold-out | 26,880 | `timestamp ≥ 2025-08-08 00:00:00` |
 
-A random K-fold split would allow a model to cheat by memorising per-host
-habits that change across days. Temporal splitting forbids this, matching
-the deployment reality where yesterday's patterns drive tomorrow's
-scoring.
+A random K-fold split would allow a model to cheat by memorising
+per-host habits that change across days. Temporal splitting forbids
+this, matching the deployment reality where yesterday's patterns drive
+tomorrow's scoring.
 
 ### No-leakage invariant
 
 Feature transformers — per-host `rule_level` mean/stdev, recency median,
 agent × rule × hour combo frequency table — are **fit once on T1** and
-**frozen** as a JSON statistics file. At T2 and T3 time, the `apply` mode
-reads that JSON and evaluates features against the frozen statistics.
-See `src/pipeline/06_engineer_features.py`.
+**frozen** as a JSON statistics file. At T2 and T3 time, the `apply`
+mode reads that JSON and evaluates features against the frozen
+statistics. See `src/pipeline/06_engineer_features.py`.
 
 This guarantees three things:
 
@@ -85,50 +123,122 @@ This guarantees three things:
 3. Deployment parity: the service loads the same stats at inference time
    that were used to measure validation performance.
 
-## Synthetic injection for validation
+## Feature engineering (IV.2.3)
 
-Real anomaly labels at scale are impossible to obtain in a SOC — analysts
-confirm or dismiss alerts under time pressure, and most true positives
-never get an "anomaly" label flipped on them. To generate a meaningful
-validation signal, this work injects MITRE ATT&CK-flavoured anomalies
-into the T2 window at 1–3%/day and evaluates the ranker against those
-known positives.
+![Figure 4.20 — Feature engineering overview](figures/fig-4-20-feature-engineering-overview.png)
 
-Four injection families, mapped to ATT&CK thinking:
+*Figure 4.20 (thesis): Cleaned data → Engineered features. Deterministic
+features are computed directly; contextual statistics (e.g. per-host
+rule-level z-score, agent×rule×hour combo frequency) are fit on T1 and
+frozen for reuse at T2/T3/inference.*
 
-| Family | What it does | ATT&CK analogue |
-|---|---|---|
-| `offhours_shift` | Shift timestamp of a genuine alert into 00:00–06:59 | Unusual access time (T1078, T1110) |
-| `rule_new` | Replace `rule.id` with a rule never seen on this host | Novel tooling / sub-technique (T1059, T1105) |
-| `decoder_new` | Replace `decoder.name` with one never seen on this host | New source / unusual log channel |
-| `level_out` | Set `rule.level` to roughly host-mean + 5 (severity outlier) | Privilege escalation / impact signals |
+Feature engineering is anchored in three signal families plus
+interactions. This parsimony is deliberate: the thesis argues that
+adding more features is *not* the bottleneck — what matters is that the
+features selected are (a) high-coverage on real Wazuh data, (b) cheap to
+compute, and (c) explainable to an analyst without further training.
 
-Weights for each family are tunable via `--weights` (see script). The
-injections preserve existing row structure except for the targeted fields,
-so the ranker has to find them using the same features it would use
-against real anomalies.
+### Feature families
 
-## Model selection rationale
+- **Temporal** — `hour_local`, `is_off_hours`, `day_of_week`,
+  `is_weekend`, `second_in_hour`, `seconds_in_hour_bucketed`,
+  `hour_bucket`. Captures daily and weekly rhythms.
+- **Severity (host-relative)** — `rule_level_z_host`: per-host z-score of
+  `rule.level`, fit on T1 and frozen. A rule-level of 10 means different
+  things on different hosts; the z-score normalises that.
+- **Recency** — `rule_time_since_last_host`,
+  `rule_time_since_last_host_log1p`. Time since the same rule was last
+  fired on the same host; `log1p` stabilises the scale.
+- **Rarity / co-occurrence** — `agent_rule_hour_hash01` (stable blake2b
+  hash of `agent × rule_id × hour_bucket` mapped to `[0, 1]`),
+  `agent_rule_hour_freq_log1p` (log1p of the combo frequency from T1).
+  Captures surprise: rare `(host, rule, hour)` combinations stand out.
+- **Cross interactions** — `offhours_x_rule_level`,
+  `offhours_x_rule_level_z`, `weekend_x_rule_level_z`,
+  `recency_x_rule_level`. Models the intuition analysts routinely apply
+  ("high severity, off-hours, and on a host that never fires this rule
+  at this hour" is a sharper signal than any component alone).
 
-Three unsupervised baselines were compared:
+### Deliberately excluded features
 
-- **k-NN** — mean distance to the *k* nearest neighbours, scored per row
-- **Isolation Forest** — path-length-based anomaly score from random trees
-- **Local Outlier Factor (LOF)** — local density ratio vs neighbourhood
+A set of candidate features was evaluated and rejected because distribution
+analysis on the real corpus showed they would not discriminate:
 
-k-NN won on precision, recall, and lift at p = 1%. The interpretation is
-straightforward: Wazuh alerts cluster tightly in feature space when they
-are normal (same agent, same rule, similar hour), so *distance to near
-neighbours* is a sharper signal than either global tree path-length
-(Isolation Forest) or local density (LOF). LOF also requires explicit
-`novelty=True` to score unseen data, which adds a tripwire to deployment.
+- **Rule / decoder novelty per host** — nearly every rule and decoder in
+  T2/T3 was already seen on that host in T1, so novelty saturates.
+- **Geolocation** — > 80% of rows are placeholder / empty.
+- **Source / destination ports** — distribution is heavy on common
+  services (SSH/HTTP); doesn't separate normal from anomalous.
+- **Raw log text** — not consistent across sources.
+
+The rejection log is itself a feature of the methodology: every retained
+feature has been weighed against a concrete, rejected alternative.
+
+## Data modelling (IV.2.4)
+
+Three unsupervised anomaly-detection algorithms are considered because
+their inductive biases are complementary given the shape of the data:
+
+1. **k-Nearest Neighbor (k-NN) anomaly scoring.** k-NN excels when the
+   rarity signal is contextual (e.g. an `agent × rule × hour` combo
+   that is rare on a specific host). Feature-contribution explanations
+   can be summarised as reason codes at the operational level
+   ("high-scoring because off-hours + `rule_level_z` above threshold on
+   this host").
+2. **Isolation Forest (IF).** Good at detecting global outliers and
+   relatively efficient at moderate dimensionality, but may need
+   `contamination` tuning and can be less sensitive to local anomalies
+   sitting near a minor but operationally relevant cluster.
+3. **Local Outlier Factor (LOF).** Effective for highlighting local
+   anomalies but can show higher variance on corpora with heterogeneous
+   density between hosts or time windows. Choice of *k* and
+   context-partitioning policy (global vs per-host) matters.
+
+### Selection criteria (applied at training time)
+
+The pilot uses four explicit criteria in early candidate filtering
+before concentrating hyperparameter tuning:
+
+1. **Budgeted-triage performance.** The algorithm must demonstrate
+   convincing `precision@K/p` and `lift@p` at a realistic review
+   budget — e.g. Top-p ≈ 1% or an equivalent fixed Top-K.
+2. **Day-to-day stability.** Ranking should not be excessively noisy as
+   daily data changes; the team needs predictable workload and
+   consistent triage quality.
+3. **Adequate explainability.** Each score should come with analyst-
+   interpretable cues (reason codes) so investigation time is short and
+   operational adoption is easier.
+4. **Computational efficiency and integration.** The algorithm must run
+   efficiently at daily batch or near-real-time cadence and integrate
+   cleanly with the established pipeline (artifact storage, indices,
+   feature schema).
+
+### Why precision@K/p + lift@p are the right metrics
+
+- **Aligns with budgeted triage.** Capacity is bounded at K/day or
+  fraction p; the metric maps directly to the actual daily workload.
+- **Robust to class imbalance.** SIEM data is heavily skewed; global
+  accuracy and even AUC-ROC lose operational meaning, while
+  head-of-list ranking metrics stay relevant.
+- **Minimal dependence on threshold calibration.** Many unsupervised /
+  one-class models produce uncalibrated scores; ranking-based
+  evaluation stays consistent even when the score scale changes.
+- **Stable across daily volume.** Top-p is proportional to the number
+  of alerts, so day-to-day comparisons don't drift; Top-K is used when
+  the team's capacity is a fixed number.
+- **Easy to explain to stakeholders.** `lift@p` reads directly as
+  "x times better than random at p%" — useful for SLAs and priority
+  justification.
+- **Supports human-in-the-loop.** Focusing on the top of the ranking
+  makes it natural to attach reason codes and to do active learning on
+  analyst feedback.
 
 ## MITRE ATT&CK coverage
 
-The injection families and the feature spine were chosen so the pipeline has
-a plausible hit surface for five common operational scenarios. Each row below
-maps a behavioural signal observable in Wazuh telemetry to ATT&CK techniques
-and explains why it matters for triage.
+The injection families and the feature spine were chosen so the pipeline
+has a plausible hit surface for five common operational scenarios. Each
+row below maps a behavioural signal observable in Wazuh telemetry to
+ATT&CK techniques and explains why it matters for triage.
 
 | Scenario | Signal in Wazuh telemetry | ATT&CK technique | Why it matters |
 |---|---|---|---|
@@ -140,9 +250,9 @@ and explains why it matters for triage.
 
 The four synthetic injection families in `src/pipeline/05_inject_synthetic.py`
 (`offhours_shift`, `rule_new`, `decoder_new`, `level_out`) are stylised
-surrogates for these scenarios, chosen because they can be generated without
-adversary-specific heuristics and because the detector has to find them using
-the same features it would use in production.
+surrogates for these scenarios, chosen because they can be generated
+without adversary-specific heuristics and because the detector has to
+find them using the same features it would use in production.
 
 ## Explainability layer
 
@@ -159,4 +269,5 @@ For every top-K row the service returns a `reason` payload with:
    `new rule on this host`, etc.
 
 Reference: `build_explain_outputs` and `occlusion_contributions` in
-`src/service/gradio_app.py`.
+`src/service/gradio_app.py`. Figures 5.1 and 5.2 in [results.md](results.md)
+show examples on real top-ranked alerts.
