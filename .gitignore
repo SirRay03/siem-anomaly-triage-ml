@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.env
+*.egg-info/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Data — never commit real SIEM data
+data/raw/
+data/combined*.csv
+data/combined*.parquet
+data/cleaned*.csv
+data/splits/
+data/coverage_*
+data/byprod/
+
+# Synthetic outputs are OK, but keep local files out of commits by default
+data/synthetic/*.csv
+!data/synthetic/.gitkeep
+
+# Model artifacts (typically large binary)
+artifacts/
+models/*.joblib
+models/*.pkl
+*.cpuprofile
+
+# Reports / logs
+docs/cleaning/*.json
+docs/cleaning/*.md
+!docs/cleaning/.gitkeep
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit
+*.env
+secrets.json
+credentials*.json
